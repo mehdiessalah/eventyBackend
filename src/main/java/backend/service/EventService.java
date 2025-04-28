@@ -1,133 +1,187 @@
 package backend.service;
 
-import backend.exception.InvalidEventException;
-import backend.exception.ResourceNotFoundException;
-import backend.model.Event;
-import backend.model.Event.EventCategory;
+import backend.model.Events;
 import backend.repository.EventRepository;
-import lombok.RequiredArgsConstructor;
+import backend.repository.UserSubscriptionRepository;
+import jakarta.persistence.EntityNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
+import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class EventService {
-    private static final Logger logger = LoggerFactory.getLogger(EventService.class);
     private final EventRepository eventRepository;
+    private final UserSubscriptionRepository userSubscriptionRepository;
+    private static final Logger logger = LoggerFactory.getLogger(EventService.class);
 
-    // CREATE
-    @Transactional
-    public Event createEvent(Event event) {
-        validateEvent(event);
-        Event savedEvent = eventRepository.save(event);
-        logger.info("Created event with ID: {}", savedEvent.getId());
-        return savedEvent;
+    @Autowired
+    public EventService(EventRepository eventRepository, UserSubscriptionRepository userSubscriptionRepository) {
+        this.eventRepository = eventRepository;
+        this.userSubscriptionRepository = userSubscriptionRepository;
     }
 
-    // READ
-    public Event getEvent(Long id) {
-        if (id == null) {
-            throw new InvalidEventException("Event ID cannot be null");
+    @Transactional(readOnly = true)
+    public List<Events> getAllEvents() {
+        try {
+            logger.debug("Fetching all public events");
+            List<Events> events = eventRepository.findAll().stream()
+                    .filter(Events::getIsPublic)
+                    .toList();
+            logger.info("Retrieved {} public events", events.size());
+            return events;
+        } catch (Exception e) {
+            logger.error("Failed to fetch events: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch events", e);
         }
-        return eventRepository.findById(id)
-                .orElseThrow(() -> {
-                    logger.error("Event not found with ID: {}", id);
-                    return new ResourceNotFoundException("Event not found with ID: " + id);
+    }
+
+    @Transactional(readOnly = true)
+    public Events getEventById(UUID id) {
+        logger.debug("Fetching event with id: {}", id);
+        try {
+            return eventRepository.findById(id)
+                    .filter(Events::getIsPublic)
+                    .orElseThrow(() -> new EntityNotFoundException("Event not found with id: " + id));
+        } catch (Exception e) {
+            logger.error("Failed to fetch event with id {}: {}", id, e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch event", e);
+        }
+    }
+
+    @Transactional
+    public Events createEvent(Events event) {
+        try {
+            logger.debug("Creating event with title: {}", event.getTitle());
+            event.setId(null); // Ensure new event
+            if (event.getTags() != null) {
+                event.setTags(event.getTags().stream().map(String::toLowerCase).toList());
+            }
+            if (event.getImages() != null) {
+                logger.debug("Processing {} images for event", event.getImages().size());
+                event.getImages().forEach(image -> {
+                    if (image.getImageUrl() == null || image.getImageUrl().isBlank()) {
+                        throw new IllegalArgumentException("Image URL cannot be null or empty");
+                    }
                 });
+            }
+            Events savedEvent = eventRepository.save(event);
+            logger.info("Successfully created event with ID: {}", savedEvent.getId());
+            return savedEvent;
+        } catch (Exception e) {
+            logger.error("Failed to create event: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to create event", e);
+        }
     }
 
-    public Page<Event> getAllEvents(Pageable pageable) {
-        logger.debug("Fetching all events with pageable: {}", pageable);
-        return eventRepository.findAll(pageable);
-    }
-
-    // UPDATE
     @Transactional
-    public Event updateEvent(Long id, Event updatedEvent) {
-        if (id == null || updatedEvent == null) {
-            throw new InvalidEventException("Event ID or data cannot be null");
+    public Events updateEvent(UUID id, Events event) {
+        logger.debug("Updating event with id: {}", id);
+        try {
+            Events existing = eventRepository.findById(id)
+                    .orElseThrow(() -> new EntityNotFoundException("Event not found with id: " + id));
+            existing.setTitle(event.getTitle());
+            existing.setDescription(event.getDescription());
+            existing.setStart(event.getStart());
+            existing.setEnd(event.getEnd());
+            existing.setLocation(event.getLocation());
+            existing.setAllDay(event.getAllDay());
+            existing.setDraggable(event.getDraggable());
+            existing.setColor(event.getColor());
+            existing.setCategory(event.getCategory());
+            existing.setOrganizer(event.getOrganizer());
+            existing.setContactEmail(event.getContactEmail());
+            existing.setImages(event.getImages());
+            existing.setThumbnail(event.getThumbnail());
+            existing.setAttendees(event.getAttendees());
+            existing.setMaxAttendees(event.getMaxAttendees());
+            existing.setIsPublic(event.getIsPublic());
+            existing.setTags(event.getTags());
+            return eventRepository.save(existing);
+        } catch (Exception e) {
+            logger.error("Failed to update event with id {}: {}", id, e.getMessage(), e);
+            throw new RuntimeException("Failed to update event", e);
         }
-        validateEvent(updatedEvent);
-        Event existing = getEvent(id);
-        existing.setTitle(updatedEvent.getTitle());
-        existing.setDescription(updatedEvent.getDescription());
-        existing.setEventDate(updatedEvent.getEventDate());
-        existing.setLocation(updatedEvent.getLocation());
-        existing.setAvailableSeats(updatedEvent.getAvailableSeats());
-        existing.setParticipationCost(updatedEvent.getParticipationCost());
-        existing.setCategory(updatedEvent.getCategory());
-        Event savedEvent = eventRepository.save(existing);
-        logger.info("Updated event with ID: {}", id);
-        return savedEvent;
     }
 
-    // DELETE
     @Transactional
-    public void deleteEvent(Long id) {
-        if (id == null) {
-            throw new InvalidEventException("Event ID cannot be null");
+    public void deleteEvent(UUID id) {
+        logger.debug("Deleting event with id: {}", id);
+        try {
+            if (!eventRepository.existsById(id)) {
+                throw new EntityNotFoundException("Event not found with id: " + id);
+            }
+            eventRepository.deleteById(id);
+        } catch (Exception e) {
+            logger.error("Failed to delete event with id {}: {}", id, e.getMessage(), e);
+            throw new RuntimeException("Failed to delete event", e);
         }
-        if (!eventRepository.existsById(id)) {
-            logger.error("Cannot delete non-existent event with ID: {}", id);
-            throw new ResourceNotFoundException("Event not found with ID: " + id);
-        }
-        eventRepository.deleteById(id);
-        logger.info("Deleted event with ID: {}", id);
     }
 
-    // CUSTOM QUERIES
-    public Page<Event> searchEvents(String keyword, Pageable pageable) {
-        if (keyword == null || keyword.trim().isEmpty()) {
-            logger.debug("Empty keyword, returning all events");
-            return getAllEvents(pageable);
+    @Transactional
+    public Events updateEventDates(UUID id, LocalDateTime start, LocalDateTime end) {
+        logger.debug("Updating event dates for id: {}", id);
+        try {
+            Events event = eventRepository.findById(id)
+                    .orElseThrow(() -> new EntityNotFoundException("Event not found with id: " + id));
+            event.setStart(start);
+            event.setEnd(end);
+            return eventRepository.save(event);
+        } catch (Exception e) {
+            logger.error("Failed to update event dates for id {}: {}", id, e.getMessage(), e);
+            throw new RuntimeException("Failed to update event dates", e);
         }
-        logger.debug("Searching events with keyword: {}", keyword);
-        return eventRepository.searchEvents(keyword.trim(), pageable);
     }
 
-    public Page<Event> getUpcomingEvents(Pageable pageable) {
-        logger.debug("Fetching upcoming events");
-        return eventRepository.findByEventDateAfter(LocalDateTime.now(), pageable);
-    }
-
-    public Page<Event> getEventsByCategory(EventCategory category, Pageable pageable) {
-        if (category == null) {
-            throw new InvalidEventException("Category cannot be null");
-        }
+    @Transactional(readOnly = true)
+    public List<Events> getEventsByCategory(String category) {
         logger.debug("Fetching events by category: {}", category);
-        return eventRepository.findByCategory(category, pageable);
+        try {
+            return eventRepository.findByCategoryIgnoreCase(category);
+        } catch (Exception e) {
+            logger.error("Failed to fetch events by category {}: {}", category, e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch events by category", e);
+        }
     }
 
-    // Validation logic
-    private void validateEvent(Event event) {
-        if (event == null) {
-            throw new InvalidEventException("Event cannot be null");
+    @Transactional(readOnly = true)
+    public List<Events> getEventsByTag(String tag) {
+        logger.debug("Fetching events by tag: {}", tag);
+        try {
+            return eventRepository.findByTagsContainingIgnoreCase(tag);
+        } catch (Exception e) {
+            logger.error("Failed to fetch events by tag {}: {}", tag, e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch events by tag", e);
         }
-        if (event.getTitle() == null || event.getTitle().trim().isEmpty()) {
-            throw new InvalidEventException("Event title is required");
+    }
+
+    @Transactional(readOnly = true)
+    public List<Events> getUpcomingEvents(int limit) {
+        logger.debug("Fetching up to {} upcoming events", limit);
+        try {
+            return eventRepository.findUpcomingEvents(LocalDateTime.now())
+                    .stream()
+                    .limit(limit)
+                    .toList();
+        } catch (Exception e) {
+            logger.error("Failed to fetch upcoming events: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch upcoming events", e);
         }
-        if (event.getDescription() == null || event.getDescription().trim().isEmpty()) {
-            throw new InvalidEventException("Event description is required");
-        }
-        if (event.getEventDate() == null || event.getEventDate().isBefore(LocalDateTime.now())) {
-            throw new InvalidEventException("Event date must be in the future");
-        }
-        if (event.getLocation() == null || event.getLocation().trim().isEmpty()) {
-            throw new InvalidEventException("Event location is required");
-        }
-        if (event.getAvailableSeats() == null || event.getAvailableSeats() < 0) {
-            throw new InvalidEventException("Available seats must be non-negative");
-        }
-        if (event.getCategory() == null) {
-            throw new InvalidEventException("Event category is required");
+    }
+
+    @Transactional(readOnly = true)
+    public List<Events> getEventsByUserId(UUID userId) {
+        logger.debug("Fetching events by user id: {}", userId);
+        try {
+            return eventRepository.findByUserId(userId);
+        } catch (Exception e) {
+            logger.error("Failed to fetch events by user id {}: {}", userId, e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch events by user id", e);
         }
     }
 }

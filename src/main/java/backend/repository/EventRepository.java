@@ -1,40 +1,36 @@
 package backend.repository;
 
-import backend.model.Event;
-import backend.model.Event.EventCategory;
-import org.jetbrains.annotations.NotNull;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import backend.model.Events;
+import org.hibernate.query.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+
+import java.awt.print.Pageable;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Repository
-public interface EventRepository extends JpaRepository<Event, Long> {
+public interface EventRepository extends JpaRepository<Events, UUID> {
+    List<Events> findByCategoryIgnoreCase(String category);
 
-    // Paginated queries
-    @NotNull Page<Event> findAll(@NotNull Pageable pageable);
-    Page<Event> findByTitleContainingIgnoreCase(String title, Pageable pageable);
-    Page<Event> findByCategory(EventCategory category, Pageable pageable);
-    Page<Event> findByEventDateBetween(LocalDateTime start, LocalDateTime end, Pageable pageable);
-    Page<Event> findByEventDateAfter(LocalDateTime date, Pageable pageable);
-    Page<Event> findByAvailableSeatsGreaterThan(int seats, Pageable pageable);
+    @Query(value = "SELECT * FROM events e WHERE e.tags @> ARRAY[LOWER(:tag)]::text[] AND e.is_public = true", nativeQuery = true)
+    List<Events> findByTagsContainingIgnoreCase(String tag);
 
-    // Non-paginated for specific use cases
-    List<Event> findByTitleContainingIgnoreCase(String title);
-    List<Event> findByCategory(EventCategory category);
-    List<Event> findByEventDateAfter(LocalDateTime date);
+    @Query("SELECT DISTINCT e.category FROM Events e WHERE e.category IS NOT NULL AND e.isPublic = true")
+    List<String> findDistinctCategories();
 
-    // Custom query for location
-    @Query("SELECT e FROM Event e WHERE LOWER(e.location) LIKE LOWER(CONCAT('%', :location, '%'))")
-    Page<Event> findByLocationContaining(String location, Pageable pageable);
+    @Query("SELECT DISTINCT unnest(e.tags) FROM Events e WHERE e.isPublic = true")
+    List<String> findDistinctTags();
 
-    // Combined search across multiple fields
-    @Query("SELECT e FROM Event e WHERE " +
-            "LOWER(e.title) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
-            "LOWER(e.description) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
-            "LOWER(e.location) LIKE LOWER(CONCAT('%', :keyword, '%'))")
-    Page<Event> searchEvents(String keyword, Pageable pageable);
+    @Query("SELECT e FROM Events e WHERE e.isPublic = true AND e.start >= :now ORDER BY e.start ASC")
+    List<Events> findUpcomingEvents(LocalDateTime now);
+
+    @Query("SELECT e FROM Events e JOIN UserSubscription us ON e.id = us.eventId WHERE us.userId = :userId")
+    List<Events> findByUserId(UUID userId);
+
+
+
 }
