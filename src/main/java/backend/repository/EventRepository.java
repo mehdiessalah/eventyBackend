@@ -28,7 +28,7 @@ public interface EventRepository extends JpaRepository<Events, UUID> {
     @Query("SELECT e FROM Events e WHERE e.isPublic = true AND e.start >= :now ORDER BY e.start ASC")
     List<Events> findUpcomingEvents(LocalDateTime now);
 
-    @Query("SELECT e FROM Events e JOIN UserSubscription us ON e.id = us.eventId WHERE us.userId = :userId")
+    @Query("SELECT e FROM Events e WHERE e.userId = :userId")
     List<Events> findByUserId(UUID userId);
 
 

@@ -57,9 +57,16 @@ public class EventController {
     @PostMapping("/events")
     public ResponseEntity<Events> createEvent(@Valid @RequestBody Events event) {
         try {
-            logger.debug("Handling POST /api/events with title: {}", event.getTitle());
-            return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(eventService.createEvent(event));
+            logger.debug("Handling POST /api/events with title: {}, userId: {}", event.getTitle(), event.getUserId());
+            try {
+                UUID.fromString(event.getUserId().toString()); // Validate UUID format
+            } catch (IllegalArgumentException e) {
+                logger.error("Invalid UUID format for userId: {}", event.getUserId());
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+            Events createdEvent = eventService.createEvent(event);
+            logger.info("Created event with ID: {}", createdEvent.getId());
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdEvent);
         } catch (Exception e) {
             logger.error("Error in POST /api/events: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
@@ -142,21 +149,19 @@ public class EventController {
     }
 
     @GetMapping("/events/by-user")
-    public ResponseEntity<List<Events>> getEventsByUserId(@RequestParam(required = false) String userId, Authentication authentication) {
+    public ResponseEntity<List<Events>> getEventsByUserId(@RequestParam("userId") String userId) {
         try {
             logger.debug("Handling GET /api/events/by-user with userId: {}", userId);
-            if (userId != null) {
-                return ResponseEntity.ok(eventService.getEventsByUserId(UUID.fromString(userId)));
-            }
-            if (authentication != null) {
-                UUID authUserId = getCurrentUserId(authentication);
-                return ResponseEntity.ok(eventService.getEventsByUserId(authUserId));
-            }
-            throw new IllegalArgumentException("User ID or authentication required");
+            UUID uuidUserId = UUID.fromString(userId);
+            List<Events> events = eventService.getEventsByUserId(uuidUserId);
+            logger.info("Returning {} events for user {}", events.size(), userId);
+            return ResponseEntity.ok(events);
+        } catch (IllegalArgumentException e) {
+            logger.error("Invalid user ID {}: {}", userId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(List.of());
         } catch (Exception e) {
             logger.error("Error in GET /api/events/by-user: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(List.of());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(List.of());
         }
     }
 

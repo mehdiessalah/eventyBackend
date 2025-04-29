@@ -57,8 +57,13 @@ public class EventService {
     @Transactional
     public Events createEvent(Events event) {
         try {
-            logger.debug("Creating event with title: {}", event.getTitle());
+            logger.debug("Creating event with title: {}, userId: {}", event.getTitle(), event.getUserId());
+            if (event.getUserId() == null) {
+                throw new IllegalArgumentException("user_id cannot be null");
+            }
             event.setId(null); // Ensure new event
+            event.setCreatedAt(LocalDateTime.now());
+            event.setUpdatedAt(LocalDateTime.now());
             if (event.getTags() != null) {
                 event.setTags(event.getTags().stream().map(String::toLowerCase).toList());
             }
@@ -178,7 +183,9 @@ public class EventService {
     public List<Events> getEventsByUserId(UUID userId) {
         logger.debug("Fetching events by user id: {}", userId);
         try {
-            return eventRepository.findByUserId(userId);
+            List<Events> events = eventRepository.findByUserId(userId);
+            logger.info("Found {} events for user {}", events.size(), userId);
+            return events;
         } catch (Exception e) {
             logger.error("Failed to fetch events by user id {}: {}", userId, e.getMessage(), e);
             throw new RuntimeException("Failed to fetch events by user id", e);

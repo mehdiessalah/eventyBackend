@@ -27,7 +27,7 @@ public class SubscriptionService {
         this.eventRepository = eventRepository;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = false)
     public List<String> getSubscribedEventIds(UUID userId) {
         try {
             logger.debug("Fetching subscribed event IDs for user {}", userId);

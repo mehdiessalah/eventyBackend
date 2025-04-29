@@ -13,7 +13,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/dashboard")
-@CrossOrigin(origins = "http://localhost:4200", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.DELETE})
+@CrossOrigin(origins = "http://localhost:4200", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.DELETE, RequestMethod.OPTIONS})
 public class SubscriptionController {
     private final SubscriptionService subscriptionService;
     private static final Logger logger = LoggerFactory.getLogger(SubscriptionController.class);
@@ -46,8 +46,21 @@ public class SubscriptionController {
             @RequestBody SubscriptionRequest request) {
         try {
             logger.debug("Handling POST /api/dashboard/subscriptions/{} for user {}", eventId, request.getUserId());
-            UUID uuidUserId = UUID.fromString(request.getUserId());
-            UUID uuidEventId = UUID.fromString(eventId);
+            logger.debug("Request body received: {}", request);
+            // Additional validation
+            if (request == null || request.getUserId() == null || request.getUserId().isEmpty()) {
+                logger.error("Invalid request body or missing userId");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+            UUID uuidUserId;
+            UUID uuidEventId;
+            try {
+                uuidUserId = UUID.fromString(request.getUserId());
+                uuidEventId = UUID.fromString(eventId);
+            } catch (IllegalArgumentException e) {
+                logger.error("Invalid UUID format: eventId={}, userId={}", eventId, request.getUserId());
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
             subscriptionService.subscribeToEvent(uuidUserId, uuidEventId);
             logger.info("User {} subscribed to event {}", request.getUserId(), eventId);
             return ResponseEntity.status(HttpStatus.CREATED).build();
@@ -60,24 +73,31 @@ public class SubscriptionController {
         }
     }
 
-    @DeleteMapping("/subscriptions/{eventId}")
+    @PostMapping("/subscriptions/{eventId}/unsubscribe")
     public ResponseEntity<Void> unsubscribeFromEvent(
             @PathVariable String eventId,
-            @RequestBody SubscriptionRequest request) {
+            @RequestParam("userId") String userId) {
         try {
-            logger.debug("Handling DELETE /api/dashboard/subscriptions/{} for user {}", eventId, request.getUserId());
-            UUID uuidUserId = UUID.fromString(request.getUserId());
+            logger.debug("Handling DELETE /api/dashboard/subscriptions/{} for user {}", eventId, userId);
+            UUID uuidUserId = UUID.fromString(userId);
             UUID uuidEventId = UUID.fromString(eventId);
             subscriptionService.unsubscribeFromEvent(uuidUserId, uuidEventId);
-            logger.info("User {} unsubscribed from event {}", request.getUserId(), eventId);
+            logger.info("User {} unsubscribed from event {}", userId, eventId);
             return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
         } catch (IllegalArgumentException e) {
-            logger.error("Invalid ID (eventId={}, userId={}): {}", eventId, request.getUserId(), e.getMessage(), e);
+            logger.error("Invalid ID (eventId={}, userId={}): {}", eventId, userId, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         } catch (Exception e) {
-            logger.error("Error in DELETE /api/dashboard/subscriptions/{} for user {}: {}", eventId, request.getUserId(), e.getMessage(), e);
+            logger.error("Error in DELETE /api/dashboard/subscriptions/{} for user {}: {}", eventId, userId, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    // Handle OPTIONS for preflight
+    @RequestMapping(value = "/subscriptions/{eventId}", method = RequestMethod.OPTIONS)
+    public ResponseEntity<Void> handleOptions() {
+        logger.debug("Handling OPTIONS request for /api/dashboard/subscriptions");
+        return ResponseEntity.ok().build();
     }
 }
 
